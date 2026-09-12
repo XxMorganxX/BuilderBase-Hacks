@@ -1,0 +1,10 @@
+{
+  "queue": "../.oracle/queue",
+  "host": "127.0.0.1",
+  "port": 8787,
+  "senderTokenEnv": "ORACLE_SENDER_TOKEN",
+  "clients": {
+    "audio-agent": "ORACLE_AUDIO_TOKEN",
+    "chip-agent": "ORACLE_CHIP_TOKEN"
+  }
+}

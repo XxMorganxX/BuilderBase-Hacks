@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.oracle/
+*.local.json
+.env
+coverage/

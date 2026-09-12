@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "id": "demo-add-compatibility-test",
+  "recipient": "audio-agent",
+  "kind": "task",
+  "priority": "normal",
+  "createdAt": "2026-09-12T15:00:01Z",
+  "body": "Add a compatibility test for audio interface v2 after the current work."
+}

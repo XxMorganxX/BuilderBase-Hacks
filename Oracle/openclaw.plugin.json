@@ -1,0 +1,18 @@
+{
+  "id": "oracle-inbox",
+  "name": "Oracle Inbox sender",
+  "description": "Oracle-to-Claude Code network delivery",
+  "categories": ["developer-tools"],
+  "contracts": { "tools": ["oracle_send_to_client"] },
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["oracleUrl"],
+    "properties": {
+      "oracleUrl": { "type": "string" },
+      "senderTokenEnv": { "type": "string", "default": "ORACLE_SENDER_TOKEN" },
+      "allowInsecureHttp": { "type": "boolean", "default": false }
+    }
+  }
+}

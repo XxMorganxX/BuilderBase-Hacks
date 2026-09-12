@@ -1,0 +1,14 @@
+{
+  "plugins": {
+    "entries": {
+      "oracle-inbox": {
+        "enabled": true,
+        "config": {
+          "oracleUrl": "http://REPLACE_WITH_REACHABLE_ORACLE_HOST:8787",
+          "senderTokenEnv": "ORACLE_SENDER_TOKEN",
+          "allowInsecureHttp": true
+        }
+      }
+    }
+  }
+}

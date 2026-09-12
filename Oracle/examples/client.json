@@ -1,0 +1,10 @@
+{
+  "recipient": "audio-agent",
+  "inbox": "../.oracle/audio/inbox",
+  "state": "../.oracle/audio/state",
+  "oracleUrl": "http://127.0.0.1:8787",
+  "allowInsecureHttp": true,
+  "tokenEnv": "ORACLE_AUDIO_TOKEN",
+  "pollMs": 2000,
+  "maxContextChars": 8000
+}

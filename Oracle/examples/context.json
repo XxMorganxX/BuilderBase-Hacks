@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "id": "demo-interface-v2",
+  "recipient": "audio-agent",
+  "kind": "context",
+  "createdAt": "2026-09-12T15:00:00Z",
+  "body": "The approved shared audio interface is v2. Use it for the next integration change."
+}
