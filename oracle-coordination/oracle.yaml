@@ -1,0 +1,23 @@
+project_id: oracle
+coordination:
+  heartbeat_seconds: 60
+  negotiation_rounds: 3
+  strict_coordination: true
+  oracle_arbitration: false
+protected_contracts:
+  - EventEnvelope
+  - OracleDecision
+requirements:
+  - subject: EventEnvelope
+    predicate: protocol_version
+    value: 1
+    visibility: PUBLIC_CONTRACT
+  - subject: OracleDecision
+    predicate: authority_before_confidence
+    value: true
+    visibility: PROJECT
+  - subject: OracleRuntime
+    predicate: inference_location
+    value: local
+    visibility: PROJECT
+
