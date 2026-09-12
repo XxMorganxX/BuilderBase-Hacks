@@ -1,0 +1,10 @@
+{
+  "name": "@session-oracle-hook/openclaw-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "compat": { "pluginApi": ">=2026.4.12" }
+  }
+}

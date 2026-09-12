@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "SOURCE_AGENT=codex /absolute/path/to/session-oracle-hook/bin/session-oracle-hook.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

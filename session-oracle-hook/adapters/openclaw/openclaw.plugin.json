@@ -1,0 +1,16 @@
+{
+  "id": "session-oracle-hook",
+  "name": "session oracle hook",
+  "description": "Ships a summarized copy of each OpenClaw agent run to the data-drop oracle box.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "hookScriptPath": {
+        "type": "string",
+        "description": "Absolute path to bin/session-oracle-hook.sh from the session-oracle-hook repo."
+      }
+    },
+    "required": ["hookScriptPath"]
+  }
+}
