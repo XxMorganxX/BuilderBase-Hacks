@@ -1,0 +1,20 @@
+# secrets
+.env
+.env.*
+!.env.example
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+# node (if any tooling appears)
+node_modules/
+dist/
+build/
+# shipper local state
+.oracle/
+# os
+.DS_Store
+Thumbs.db
