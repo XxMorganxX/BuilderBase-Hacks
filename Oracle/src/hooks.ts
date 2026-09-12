@@ -33,7 +33,9 @@ export async function runHook(config: ClientConfig, input: unknown, emit: (outpu
     await locked(receiptDir, async () => {
       const selected: Message[] = [];
       const parts: string[] = [];
-      for (const m of await messages(config.inbox)) {
+      const pending = await messages(config.inbox);
+      pending.sort((a, b) => Number(b.kind === 'task' && b.priority === 'urgent') - Number(a.kind === 'task' && a.priority === 'urgent'));
+      for (const m of pending) {
         if (m.recipient !== config.recipient || (m.sessionId && m.sessionId !== event.session_id)) continue;
         if (m.expiresAt && Date.parse(m.expiresAt) <= Date.now()) continue;
         const normalTask = m.kind === 'task' && m.priority === 'normal';

@@ -4,3 +4,4 @@ dist/
 *.local.json
 .env
 coverage/
+.codex/hooks.json

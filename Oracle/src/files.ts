@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, unlink, readdir, open, constants } from 'node:fs/promises';
+import { mkdir, writeFile, rename, unlink, readdir, open, constants } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import lockfile from 'proper-lockfile';
 import { MessageSchema, type Message } from './schema.js';

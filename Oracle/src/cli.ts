@@ -14,7 +14,7 @@ async function output(value: unknown) {
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
 async function main() {
   const [command, configPath, messagePath] = process.argv.slice(2);
-  if (!configPath) throw new Error('Usage: node dist/cli.js serve|poll|poll-once|hook|settings CONFIG; write CLIENT_CONFIG MESSAGE.json; send ORACLE_URL MESSAGE.json');
+  if (!configPath) throw new Error('Usage: node dist/cli.js serve|poll|poll-once|hook|settings|codex-settings CONFIG; write CLIENT_CONFIG MESSAGE.json; send ORACLE_URL MESSAGE.json');
   if (command === 'serve') {
     const config = await serverConfig(configPath);
     const server = deliveryServer(config);
@@ -29,10 +29,14 @@ async function main() {
     return;
   }
   const config = await clientConfig(configPath);
-  if (command === 'settings') {
+  if (command === 'settings' || command === 'codex-settings') {
     const hook = [process.execPath, fileURLToPath(import.meta.url), 'hook', resolve(configPath)].map(quote).join(' ');
     await output({ hooks: Object.fromEntries(['UserPromptSubmit', 'PostToolUse', 'Stop'].map(event => [event, [
-      { ...(event === 'PostToolUse' ? { matcher: '*' } : {}), hooks: [{ type: 'command', command: hook, timeout: 5 }] },
+      { ...(event === 'PostToolUse' ? { matcher: '*' } : {}), hooks: [{
+        type: 'command', command: hook, timeout: 5,
+        // Our reader already bounds output; preserve it instead of spilling it.
+        ...(command === 'codex-settings' && event !== 'Stop' ? { additionalContextLimit: 0 } : {}),
+      }] },
     ]])) });
     return;
   }
