@@ -22,6 +22,12 @@ class Settings:
     port: int
     log_level: str
 
+    # Auth. One shared password gates writes; the X-Oracle-User header says
+    # whose session it is (decision D8).
+    password: str
+    user_header: str
+    default_user: str
+
     # Ingest limits (PLAN 4.4)
     max_events_per_batch: int
     max_body_bytes: int
@@ -48,6 +54,9 @@ def load_settings() -> Settings:
         db_command_timeout=float(os.environ.get("ORACLE_DB_TIMEOUT", "30")),
         port=_int("ORACLE_GATEWAY_PORT", 8080),
         log_level=os.environ.get("ORACLE_LOG_LEVEL", "info").lower(),
+        password=os.environ.get("ORACLE_PASSWORD", "oracle"),
+        user_header=os.environ.get("ORACLE_USER_HEADER", "x-oracle-user").lower(),
+        default_user=os.environ.get("ORACLE_DEFAULT_USER", "unattributed@oracle.local").lower(),
         max_events_per_batch=_int("ORACLE_MAX_EVENTS_PER_BATCH", 1000),
         max_body_bytes=_int("ORACLE_MAX_BODY_BYTES", 10 * 1024 * 1024),
         content_text_max=_int("ORACLE_CONTENT_TEXT_MAX", 8192),

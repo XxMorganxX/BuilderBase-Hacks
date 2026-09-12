@@ -65,17 +65,18 @@ async def ping() -> bool:
 
 # -- identity ---------------------------------------------------------------
 
-USER_BY_KEY_HASH = """
-SELECT u.id, u.email, u.display_name
-FROM api_keys k
-JOIN users u ON u.id = k.user_id
-WHERE k.key_hash = $1 AND k.revoked_at IS NULL
+# Users appear the first time someone ships as them. There is no provisioning
+# step: the identity in the request header is the whole of the registration.
+UPSERT_USER = """
+INSERT INTO users (email, display_name) VALUES ($1, $2)
+ON CONFLICT (email) DO UPDATE SET display_name = users.display_name
+RETURNING id, email, display_name
 """
 
 
-async def user_by_key_hash(key_hash: str) -> asyncpg.Record | None:
+async def upsert_user(identity: str, display_name: str) -> asyncpg.Record:
     async with pool().acquire() as conn:
-        return await conn.fetchrow(USER_BY_KEY_HASH, key_hash)
+        return await conn.fetchrow(UPSERT_USER, identity, display_name)
 
 
 # -- ingest (write path) ----------------------------------------------------

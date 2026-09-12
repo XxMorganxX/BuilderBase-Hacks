@@ -71,7 +71,7 @@ Components and contracts (P2, P7):
 | D5 | Idempotency key = `(session_id, external_event_id)` | Vendors give stable ids (Claude Code `uuid`, Codex `ordinal`). `ON CONFLICT DO NOTHING`. P4. | Content hashing (breaks on edits). |
 | D6 | `events.id bigserial` is the global read cursor | Simplest correct-enough cursor for a poller. Not strictly commit-ordered under concurrent writers; fine at hackathon scale (section 15). | LISTEN/NOTIFY (extra moving part). |
 | D7 | Store `raw` on every event | P3. Storage is cheap; re-projection is the safety net. | Drop raw. |
-| D8 | Auth = bearer token, sha256 stored in `api_keys`, seed script prints tokens once | Enough for a trusted LAN; one function to replace later. | No auth (breaks P5). |
+| D8 | Auth = one shared password (`ORACLE_PASSWORD`, default `oracle`) sent as a bearer token; identity declared per request in `X-Oracle-User` and auto-created | Nothing to provision or distribute, which removes a whole deployment step and a whole class of support question. Identity stays per person because Oracle routes to people (P5). | Per-user API keys (revised 2026-09-12: the provisioning cost was not buying anything on a trusted LAN). No identity at all (breaks P5 and the product). |
 | D9 | Gateway and Postgres in one `docker-compose.yml` on the server | One command to deploy; volume-backed data. | Managed DB (network and time). |
 | D10 | Shipper tails by byte offset with a local state file; Codex batches always include the `session_meta` header line | Avoids re-sending multi-MB files; the header makes each batch self-describing. Fallback if short on time: re-send the whole file, server dedupes. | Claude Code hooks only (not generic; can be added as a trigger later). |
 | D11 | Phase-2 tables (`oracle_cursors`, `session_summaries`, `oracle_messages`) are created now | No migration tooling in a hackathon. Empty tables cost nothing and let phase 2 start immediately. | A migrations framework. |
@@ -174,14 +174,9 @@ CREATE TABLE IF NOT EXISTS users (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS api_keys (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  key_hash    text NOT NULL UNIQUE,          -- sha256 hex of the bearer token
-  label       text,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  revoked_at  timestamptz
-);
+-- No api_keys table: authentication is one shared password held by the
+-- gateway. A users row appears the first time someone ships under that
+-- identity (decision D8).
 
 -- Sessions: the one mutable header row (P1) ----------------------------------
 CREATE TABLE IF NOT EXISTS sessions (
@@ -268,7 +263,7 @@ CREATE INDEX IF NOT EXISTS oracle_messages_pending_idx
   ON oracle_messages (target_user_id, created_at) WHERE delivered_at IS NULL;
 ```
 
-**Seed.** `db/seed.py` (asyncpg, run once): reads `SEED_USERS="alice@acme.com:Alice,bob@acme.com:Bob"` or CLI args, inserts users (`ON CONFLICT (email) DO NOTHING`), generates one token per user as `ork_` + 32 url-safe random bytes, stores `sha256(token)` in `api_keys`, prints the plaintext tokens once. Never logs tokens elsewhere.
+**No seed step.** Users are created on first sight from the `X-Oracle-User` header, so there is nothing to run before a laptop can ship.
 
 **docker-compose** (`db/docker-compose.yml`, run on the server):
 
@@ -310,18 +305,18 @@ volumes:
 | `DATABASE_URL` | gateway, seed | asyncpg DSN |
 | `ORACLE_GATEWAY_PORT` | gateway | default 8080 |
 | `ORACLE_LOG_LEVEL` | gateway | default info |
-| `SEED_USERS` | seed | `email:Name,email:Name` |
+| `ORACLE_PASSWORD` | gateway, shipper | the one shared password, default `oracle` |
 | `ORACLE_GATEWAY_URL` | shipper | `http://SERVER:8080` |
-| `ORACLE_TOKEN` | shipper | bearer token from seed |
+| `ORACLE_USER` | shipper | the identity sent in `X-Oracle-User` |
 
 ## 6. Gateway API
 
-Base `http://<server>:8080`. All `/v1/*` routes require `Authorization: Bearer <token>`. Errors are JSON `{"error": "...", "detail": ...}` with 400, 401, 413, 422, or 500.
+Base `http://<server>:8080`. All `/v1/*` routes require `Authorization: Bearer <ORACLE_PASSWORD>`, and take an optional `X-Oracle-User` header naming the person the request belongs to (default `unattributed@oracle.local`). Errors are JSON `{"error": "...", "detail": ...}` with 400, 401, 413, 422, or 500.
 
 | Method and path | Body | Returns | Notes |
 |---|---|---|---|
 | `GET /healthz` | none | `{"ok": true, "db": true}` | No auth. |
-| `GET /v1/me` | none | current user | Token sanity check. |
+| `GET /v1/me` | none | current user | Password and identity sanity check. |
 | `POST /v1/ingest` | canonical batch (4.4) | `{"session_id", "received", "inserted", "duplicates", "skipped"}` | The contract endpoint. |
 | `POST /v1/ingest/raw/{agent_kind}` | `application/x-ndjson`, native lines | same as above | Runs the adapter, then the same ingest path. 400 if the adapter is unknown or cannot find the session header. |
 | `GET /v1/sessions?user_id=&agent_kind=&since=&limit=50` | none | sessions without events | Ordered by `last_event_at desc`. |
@@ -427,7 +422,7 @@ New file in `adapters/`, one line in the registry, a fixture, a test. Nothing el
 `shippers/oracle_shipper.py`, standard library only (`json`, `urllib.request`, `pathlib`, `time`, `argparse`). Runs on each laptop:
 
 ```
-python3 shippers/oracle_shipper.py --gateway http://SERVER:8080 --token ork_... [--once] [--backfill] [--interval 2]
+python3 shippers/oracle_shipper.py --gateway http://SERVER:8080 --password oracle --user you@example.com [--once] [--backfill] [--interval 2]
 ```
 
 1. Discover files: `~/.claude/projects/**/*.jsonl` as `claude_code`; `~/.codex/sessions/**/rollout-*.jsonl` as `codex`. On startup ignore files not modified in the last 24 hours unless `--backfill`.
@@ -461,7 +456,6 @@ hackathon_oracle/
       __init__.py
       config.py                   # all env-derived settings, read once
       __main__.py                 # python -m oracle_gateway, for the no-Docker path
-      seed.py                     # create users, issue tokens
       main.py                     # FastAPI app and routes only
       models.py                   # canonical pydantic models (4.x)
       db.py                       # asyncpg pool + every SQL statement
@@ -490,11 +484,11 @@ Clock starts when Opus begins. Phase-1 budget: 2h15m, leaving about 1h30m for ph
 
 | M | Window | Deliverable | Done when |
 |---|---|---|---|
-| M0 | 0:00-0:10 | `git init`, `.env.example`, `README.md`, `db/schema.sql`, `db/docker-compose.yml`, `db/seed.py`; `docker compose up db` locally | `psql` lists the tables; seed prints two tokens |
+| M0 | 0:00-0:10 | `git init`, `.env.example`, `README.md`, `db/schema.sql`, `db/docker-compose.yml`; `docker compose up db` locally | `psql` lists the tables |
 | M1 | 0:10-0:45 | Gateway: `config.py`, `db.py`, `models.py`, `auth.py`, `ingest.py`, `main.py` with `/healthz`, `/v1/me`, `/v1/ingest`, `/v1/sessions*`, `/v1/events` | curl posts a canonical batch twice; second response says `inserted: 0` |
 | M2 | 0:45-1:15 | Claude Code adapter, TDD on the fixture; `/v1/ingest/raw/claude_code` | tests pass; the raw fixture lands with the right event types |
 | M3 | 1:15-1:35 | Shipper; run on this laptop against the local gateway with the live session | this session's events show up in `GET /v1/events` |
-| M4 | 1:35-1:55 | Deploy: rsync the repo to the server, `docker compose up -d`, seed, point the shipper at the server | laptop to server round trip works |
+| M4 | 1:35-1:55 | Deploy: clone on the server, `docker compose up -d`, point the shipper at it | laptop to server round trip works |
 | M5 | 1:55-2:15 | Codex adapter, TDD on the fixture; a second user or laptop ships | acceptance items 1-6 |
 
 If behind at M3: skip Codex, demo with two Claude Code users, and note it in `tasks/`.
@@ -502,7 +496,7 @@ If behind at M3: skip Codex, demo with two Claude Code users, and note it in `ta
 ## 11. Verification script
 
 ```bash
-export G=http://SERVER:8080 T=ork_...
+export G=http://SERVER:8080 T=oracle U=you@example.com
 curl -s $G/healthz
 curl -s -H "Authorization: Bearer $T" $G/v1/me
 # canonical ingest, twice; second must report inserted 0
@@ -535,6 +529,7 @@ Recorded here because the plan is the spec and the code is now ahead of it in th
 | 4 | `isMeta` identifies slash-command chrome | Shared `is_injected_context` shape check | Claude Code does not flag the `<command-name>` line itself, and Codex has no equivalent flag at all. |
 | 5 | (not planned) | `oracle_gateway/__main__.py` | Gives the no-Docker fallback in the deployment runbook a real entry point, and makes `ORACLE_GATEWAY_PORT` mean something outside compose. |
 | 6 | `ORACLE_GATEWAY_PORT` passed into the container | Host-side port mapping only; the container is fixed on 8080 | It was doing two jobs and would have silently disagreed with itself if changed. |
+| 7 | Per-user API keys in an `api_keys` table, issued by a seed script | One shared password plus an `X-Oracle-User` header; users auto-create; `api_keys` and the seed script are gone | Requested after the first build. Provisioning and distributing keys bought nothing on a trusted LAN, and it cost a deployment step. Identity had to stay, so it moved to a header: authentication and identity are now separate concerns, which is the honest shape anyway. |
 
 Observed but needing no change: Claude Code emits many more chrome line types than the four seen at planning time (`ai-title`, `queue-operation`, `atis-latch`, `relocated`, `worktree-state`, `file-history-delta`, `pr-link`, `cost-state`, `system`). The adapter allow-lists conversation types rather than deny-listing chrome, so each new one is counted and dropped without a code change. That is decision D7 and principle P3 earning their keep on day one.
 

@@ -15,7 +15,7 @@ services:
       # applies schema.sql explicitly, which is idempotent.
       - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     ports:
-      # Published so psql and the seed script can reach it from the host.
+      # Published so psql can reach it from the host.
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U oracle -d oracle"]
@@ -29,6 +29,8 @@ services:
     environment:
       DATABASE_URL: postgresql://oracle:${POSTGRES_PASSWORD}@db:5432/oracle
       ORACLE_LOG_LEVEL: ${ORACLE_LOG_LEVEL:-info}
+      # The single password every laptop sends. Default suits a demo.
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-oracle}
     ports:
       # ORACLE_GATEWAY_PORT is the port laptops connect to. The container
       # always listens on 8080 internally.

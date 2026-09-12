@@ -5,21 +5,21 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- gen_random_uuid()
 
 -- Identity (P5) --------------------------------------------------------------
+-- Authentication is one shared password held by the gateway, not stored here
+-- (decision D8). This table answers "whose session is this", which the Oracle
+-- agent needs in order to route anything back to a person. A row appears the
+-- first time someone ships under that identity; there is no provisioning step.
 CREATE TABLE IF NOT EXISTS users (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  email         text NOT NULL UNIQUE,
+  email         text NOT NULL UNIQUE,        -- an email by convention; any unique handle works
   display_name  text NOT NULL,
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS api_keys (
-  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  key_hash    text NOT NULL UNIQUE,          -- sha256 hex of the bearer token
-  label       text,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  revoked_at  timestamptz
-);
+-- Per-user API keys were replaced by the shared password. Dropping the table
+-- here keeps a database created by an earlier version converging on re-apply;
+-- it only ever held dead token hashes.
+DROP TABLE IF EXISTS api_keys;
 
 -- Sessions: the one mutable header row (P1) ----------------------------------
 CREATE TABLE IF NOT EXISTS sessions (

@@ -36,6 +36,21 @@ Built M0 through M2 plus the deployment runbook. Milestones M3 (tailing shipper)
 
 **Not done, deliberately:** the tailing shipper (M3), deployment to the actual server (M4), and the phase-2 Oracle agent. No secret redaction, no TLS, no visibility rules; P10 debt, restated in section 13 of the runbook so whoever deploys it reads it.
 
+### 2026-09-12 (auth simplification, Opus)
+
+Replaced per-user API keys with one shared password, at the user's request. `api_keys`, `seed.py`, and the whole token-provisioning step are gone.
+
+The request was "just set a designated password `oracle` instead of a unique api_key". Taken literally that also removes identity, and identity is the one thing Oracle cannot do without: the entire point is routing context back to a person. So authentication and identity were split rather than collapsed:
+
+- **May you write?** `Authorization: Bearer <ORACLE_PASSWORD>`, default `oracle`, the same for everyone. Constant-time compare.
+- **Whose session is this?** `X-Oracle-User`, a free-form identity, lowercased. A users row is created on first sight, display name derived from the local part, so `ada.lovelace@acme.com` reads as "Ada Lovelace". Absent header falls back to `unattributed@oracle.local`, so a bare curl still works. Resolved identities are cached per process, so the common path is not a write.
+
+What this bought: the deployment runbook lost an entire step, a laptop needs no provisioning at all, and there is no "my token stopped working" failure mode. What it cost, written into `docs/SERVER-DEPLOYMENT.md` section 13 and P10: anyone with the password can claim to be anyone. Acceptable in one room on one afternoon, nowhere else.
+
+P5 was amended rather than broken. The principle said identity is the person; it now says explicitly that authentication and identity are separate questions and only the first is allowed to get simpler. Decision D8 was rewritten and the old choice recorded as superseded.
+
+Twelve tests added covering password acceptance and rejection, auto-creation, case folding, the default identity, two people under one password, and attribution of an ingested session to the header rather than the password. Suite is 57. Verified live: wrong password 401, correct password with two different identities creating two users, a real session attributed to the header user, re-ship still writing nothing.
+
 ## Open questions
 - See `docs/PLAN.md` section 13. None are blocking.
 

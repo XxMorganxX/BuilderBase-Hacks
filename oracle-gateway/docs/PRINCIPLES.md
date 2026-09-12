@@ -34,7 +34,9 @@ Every event stores the original native payload alongside the canonical projectio
 Clients may crash, retry, or re-send a whole file. The gateway deduplicates on the vendor's own event id (or a stable derived id) and treats "already have it" as success. This is what lets the client be a few dozen lines of standard-library code that anyone can run in ten seconds.
 
 ### P5. Identity is the person, not the machine.
-Every session belongs to an employee. API keys map to users, not hosts. Two sessions on two laptops belonging to the same person are that person's work. Oracle routes to people and their live sessions, never to IP addresses.
+Every session belongs to an employee. Two sessions on two laptops belonging to the same person are that person's work. Oracle routes to people and their live sessions, never to IP addresses.
+
+Authentication and identity are separate questions, and only the first is allowed to get simpler. A shipper proves it may write (currently one shared password) and separately declares who it is. Weakening the proof is a deployment choice; dropping the declaration would remove the thing Oracle exists to use.
 
 ### P6. Oracle observes and speaks. It never edits history.
 Oracle writes its own outputs (summaries, messages to sessions) into dedicated tables. It cannot alter or delete events. If Oracle is wrong, its messages are wrong. The record stays right.
@@ -54,7 +56,7 @@ If you find yourself grepping for a value, that value is in the wrong place.
 A thin path that works from a real laptop session to a row in the remote database beats a complete gateway that has never been hit. Every milestone in the plan ends in something demoable. Stub, do not skip, and log every stub in `tasks/`.
 
 ### P10. Privacy is a known debt, declared up front.
-Sessions contain source code, file paths, tool output, and sometimes secrets. For the hackathon: trusted LAN, a small consenting group, no external exposure. Before any real deployment: secret redaction at the shipper, per-user visibility controls, retention limits, TLS, and SSO. These are listed as gaps in the plan, not forgotten.
+Sessions contain source code, file paths, tool output, and sometimes secrets. For the hackathon: trusted LAN, a small consenting group, no external exposure, one shared password that anyone can use to claim any identity. Before any real deployment: secret redaction at the shipper, per-user visibility controls, retention limits, TLS, and real authentication. These are listed as gaps in the plan, not forgotten.
 
 ## Vocabulary
 
@@ -84,3 +86,4 @@ Sessions contain source code, file paths, tool output, and sometimes secrets. Fo
 Changes to these principles are logged here with a date and a reason.
 
 - 2026-09-12: v1 written at hackathon start.
+- 2026-09-12: P5 split into authentication and identity, after per-user API keys were replaced by one shared password plus a declared identity header. The principle is unchanged; what changed is that the password no longer carries the identity, so the header has to.

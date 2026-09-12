@@ -19,7 +19,7 @@ Two containers, defined in `db/docker-compose.yml`:
 | `db` | `postgres:16` | 5432 | The append-only session log. Data lives in the named volume `oracle_pgdata`. |
 | `gateway` | built from `gateway/` | 8080 | HTTP API. Authenticates laptops, converts vendor session formats, writes to the log. |
 
-Laptops talk only to the gateway. Nothing needs to reach Postgres except the gateway and whoever runs the seed script.
+Laptops talk only to the gateway. Nothing outside this machine needs to reach Postgres.
 
 ---
 
@@ -86,9 +86,12 @@ POSTGRES_PASSWORD=$(openssl rand -hex 24)
 POSTGRES_PORT=5432
 ORACLE_GATEWAY_PORT=8080
 ORACLE_LOG_LEVEL=info
+ORACLE_PASSWORD=oracle
 EOF
 chmod 600 .env
 ```
+
+`ORACLE_PASSWORD` is the single password every laptop sends. `oracle` is the agreed value for this hackathon; change it here and tell everyone if you want something else. Unlike the Postgres password it is not generated, because every person has to type it.
 
 `ORACLE_GATEWAY_PORT` is the port laptops will connect to. The container always listens on 8080 internally; change this value only if 8080 is already taken on the host. Same for `POSTGRES_PORT`: if something already uses 5432, set it to 5433 and remember it for step 5.
 
@@ -128,7 +131,7 @@ docker compose exec -T db psql -U oracle -d oracle -tAc \
   "select count(*) from pg_tables where schemaname='public'"
 ```
 
-**Check:** prints `7` (`users`, `api_keys`, `sessions`, `events`, `oracle_cursors`, `session_summaries`, `oracle_messages`).
+**Check:** prints `6` (`users`, `sessions`, `events`, `oracle_cursors`, `session_summaries`, `oracle_messages`).
 
 If it prints anything else:
 
@@ -156,44 +159,21 @@ curl -s http://localhost:8080/healthz
 
 ---
 
-## 7. Create users and issue tokens
+## 7. Understand who is who
 
-Every session belongs to a person, and a token identifies that person (principle P5). Create one user per engineer who will ship sessions. Run this **inside the gateway container**, which already has the dependencies:
+There is nothing to run in this step. It is here because the next one will not make sense without it.
 
-```bash
-cd ~/builderbase/oracle-gateway/db
-docker compose exec -T gateway python -m oracle_gateway.seed \
-  "alice@example.com:Alice" "bob@example.com:Bob"
-```
+Authentication is one shared password, the `ORACLE_PASSWORD` you set in step 3. Every laptop sends the same one. There are no per-person keys to generate, distribute, or revoke.
 
-Output:
+Identity is separate. Each request carries an `X-Oracle-User` header saying whose session it is, and a user row appears the first time anyone ships under that identity. So a laptop needs three values and no provisioning:
 
-```
-EMAIL                        NAME           TOKEN
-alice@example.com            Alice          ork_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-bob@example.com              Bob            ork_yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
-```
+| Value | Example | Who sets it |
+|---|---|---|
+| Gateway URL | `http://192.168.1.40:8080` | you, from step 1 |
+| Password | `oracle` | you, from step 3 |
+| Identity | `alice@example.com` | each person, once, and then never changes it |
 
-**Capture these tokens now.** Only their SHA-256 hashes are stored, so a lost token cannot be recovered, only replaced. Give each person their own token over a private channel, never a shared one: two people on one token become one person in the data, and the Oracle agent will route their context to the wrong human.
-
-Useful variants:
-
-```bash
-# add someone later
-docker compose exec -T gateway python -m oracle_gateway.seed "carol@example.com:Carol"
-
-# replace a leaked token (the old one stops working immediately)
-docker compose exec -T gateway python -m oracle_gateway.seed --revoke-existing "alice@example.com:Alice"
-```
-
-**Check:**
-
-```bash
-curl -s -H "Authorization: Bearer PASTE_A_TOKEN" http://localhost:8080/v1/me
-# expect: {"id":"...","email":"alice@example.com","display_name":"Alice"}
-```
-
----
+The tradeoff, stated plainly so you can decide whether it is acceptable on your network: anyone holding the password can claim to be anyone. It suits a room of people at one hackathon. It does not suit anything else, which is the point of section 13.
 
 ## 8. Prove the whole path works
 
@@ -201,7 +181,8 @@ Run this acceptance script on the server. It posts a session, posts it again, an
 
 ```bash
 export G=http://localhost:8080
-export T=PASTE_A_TOKEN
+export T=oracle                       # whatever you set as ORACLE_PASSWORD
+export U=deploy-check@example.com     # any identity; this one is a throwaway
 
 cat > /tmp/batch.json <<'JSON'
 {"session":{"external_id":"deploy-check-1","agent_kind":"custom","workspace":"/tmp/demo"},
@@ -210,9 +191,9 @@ cat > /tmp/batch.json <<'JSON'
             "occurred_at":"2026-01-01T00:00:00Z"}]}
 JSON
 
-echo "first  :" $(curl -s -H "Authorization: Bearer $T" -H 'Content-Type: application/json' --data @/tmp/batch.json $G/v1/ingest)
-echo "second :" $(curl -s -H "Authorization: Bearer $T" -H 'Content-Type: application/json' --data @/tmp/batch.json $G/v1/ingest)
-echo "feed   :" $(curl -s -H "Authorization: Bearer $T" "$G/v1/events?after_id=0&limit=5")
+echo "first  :" $(curl -s -H "Authorization: Bearer $T" -H "X-Oracle-User: $U" -H 'Content-Type: application/json' --data @/tmp/batch.json $G/v1/ingest)
+echo "second :" $(curl -s -H "Authorization: Bearer $T" -H "X-Oracle-User: $U" -H 'Content-Type: application/json' --data @/tmp/batch.json $G/v1/ingest)
+echo "feed   :" $(curl -s -H "Authorization: Bearer $T" -H "X-Oracle-User: $U" "$G/v1/events?after_id=0&limit=5")
 ```
 
 **Check, and this is the acceptance test for the whole deployment:**
@@ -225,7 +206,8 @@ Then remove the probe so it does not clutter the demo:
 
 ```bash
 docker compose exec -T db psql -U oracle -d oracle -c \
-  "delete from sessions where external_session_id = 'deploy-check-1';"
+  "delete from sessions where external_session_id = 'deploy-check-1';
+   delete from users where email = 'deploy-check@example.com';"
 ```
 
 ### Now let a laptop reach it
@@ -252,10 +234,13 @@ Then ship a real session from the laptop and watch it land:
 
 ```bash
 # on the laptop
+export T=oracle
+export U=your.name@example.com
 f=$(ls -t ~/.claude/projects/*/*.jsonl | head -1)
-curl -s -H "Authorization: Bearer $T" -H 'Content-Type: application/x-ndjson' \
+curl -s -H "Authorization: Bearer $T" -H "X-Oracle-User: $U" \
+     -H 'Content-Type: application/x-ndjson' \
      --data-binary @"$f" http://SERVER:8080/v1/ingest/raw/claude_code
-curl -s -H "Authorization: Bearer $T" "http://SERVER:8080/v1/sessions?limit=5"
+curl -s -H "Authorization: Bearer $T" -H "X-Oracle-User: $U" "http://SERVER:8080/v1/sessions?limit=5"
 ```
 
 A healthy response reports a large `inserted` and a large `skipped`. Skipped is not an error: a session file is mostly UI chrome, and only conversation lines are stored.
@@ -271,9 +256,10 @@ A healthy response reports a large `inserted` and a large `skipped`. Skipped is 
 | C | `gateway` restarts in a loop | `docker compose logs gateway`. A traceback ending in `ConnectionRefusedError` means Postgres is not up yet: wait and re-check. A `ModuleNotFoundError` means a partial build: `docker compose build --no-cache gateway`. |
 | D | `/healthz` returns `"db":false` | Password mismatch between the two services. This happens if you changed `POSTGRES_PASSWORD` after the volume was created: the database keeps the original. Either restore the old password in `.env`, or wipe and start over with 9.H. |
 | E | `port is already allocated` | Something else uses 8080 or 5432. Change `ORACLE_GATEWAY_PORT` or `POSTGRES_PORT` in `.env`, then `docker compose up -d`. |
-| F | `401 unknown or revoked token` | Wrong token, or it was revoked. Issue a fresh one with `--revoke-existing` (step 7). |
+| F | `401 wrong password` | The laptop is not sending the `ORACLE_PASSWORD` from step 3. Check for a stale value, and note the header is `Authorization: Bearer <password>`. |
 | G | `400 no adapter for agent_kind '...'` | That vendor has no adapter yet. Known kinds are in the `/healthz` output. Agents that convert their own format can POST canonical JSON to `/v1/ingest` instead. |
 | H | You want to start completely over | `docker compose down -v` **destroys all ingested sessions**, then `docker compose up -d --build` and redo steps 5 to 7. Never run this once the demo data matters. |
+| J | Sessions all land under `unattributed@oracle.local` | The laptop is not sending `X-Oracle-User`. Harmless, but Oracle cannot route to a person until it does. |
 | I | `413` from a laptop | One batch exceeded 10 MB or 1000 events. The shipper should send smaller batches; the limit is `ORACLE_MAX_BODY_BYTES` in `.env` if it genuinely needs raising. |
 
 ---
@@ -294,7 +280,7 @@ cd ~/builderbase/oracle-gateway/gateway
 python3.12 -m venv .venv && .venv/bin/pip install .
 export DATABASE_URL="postgresql://oracle:CHOOSE_ONE@localhost:5432/oracle"
 export ORACLE_GATEWAY_PORT=8080
-.venv/bin/python -m oracle_gateway.seed "alice@example.com:Alice"
+export ORACLE_PASSWORD=oracle
 nohup .venv/bin/python -m oracle_gateway > ~/oracle-gateway.log 2>&1 &
 ```
 
@@ -344,12 +330,12 @@ gunzip -c ~/oracle-TIMESTAMP.sql.gz | docker compose exec -T db psql -U oracle -
 Send the person who handed you this runbook:
 
 1. **Gateway URL** laptops should use: `http://<address from step 1>:<ORACLE_GATEWAY_PORT>`
-2. **Tokens**, one per person, each over a private channel.
+2. **The password**, once, to the group. Everyone uses the same one, and each person picks their own `X-Oracle-User` identity.
 3. **The step-8 result**, as the literal two lines of output (first `inserted:1`, second `inserted:0`).
 4. **Anything you had to change** from this runbook: a different port, the fallback in section 10, a troubleshooting row you hit. This matters more than it looks, because the next person debugs against what the runbook says, not against what you did.
 5. **Whether the firewall step was needed**, and which tool you used.
 
-Then tell them the shipper instructions are in `shippers/README.md` and that each laptop needs only the gateway URL and its own token.
+Then tell them the shipper instructions are in `shippers/README.md` and that each laptop needs the gateway URL, the password, and an identity of its own choosing.
 
 ---
 
@@ -359,7 +345,7 @@ Stated plainly so nobody mistakes the hackathon setup for a product (principle P
 
 - **No TLS.** Tokens and source code cross the network in the clear. Trusted LAN only.
 - **No secret redaction.** Whatever an agent saw, including anything in a `.env` a tool printed, is now in this database.
-- **No visibility rules.** Any valid token can read every session from every user. That is what the Oracle agent needs, and it means everyone can read everyone.
+- **No visibility rules, and no real authentication.** One password reads and writes everything, and anyone holding it can claim to be any identity. Cross-session reading is what the Oracle agent needs; the weak identity is a hackathon shortcut, not a design.
 - **No retention limit.** Nothing is ever deleted.
 
 Do not point this at a production network or ingest sessions from people who have not agreed to it.
