@@ -1,0 +1,31 @@
+# Local MongoDB for the agenda knowledge base.
+#
+#   docker compose up -d     # start it
+#   docker compose down      # stop it, keep the data
+#   docker compose down -v   # stop it, throw the data away
+#
+# Bound to 127.0.0.1 deliberately: this instance runs without authentication, which is
+# fine for a local KB and would not be fine on a shared network. Point the app at a real
+# cluster by setting AGENDA_MONGO_URI instead of adding users here.
+#
+# Published on 27018, not the default 27017: a sibling project on this machine already has
+# an Atlas-local Mongo on 27017, and two hackathon projects should not be able to take each
+# other's database down. If you ever want Atlas Vector Search locally, swap the image for
+# mongodb/mongodb-atlas-local — the URI is config, so nothing in the app changes.
+services:
+  mongo:
+    image: mongo:7
+    container_name: agenda-mongo
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - agenda-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  agenda-mongo-data:
